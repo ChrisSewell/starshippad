@@ -1,0 +1,135 @@
+--- a/ios/StarshipTouchControls.mm
++++ b/ios/StarshipTouchControls.mm
+@@ -1,4 +1,5 @@
+ #import <UIKit/UIKit.h>
++#import <QuartzCore/CAMetalLayer.h>
+ 
+ #include <algorithm>
+ #include <array>
+@@ -1349,8 +1350,90 @@
+         }
+     }
+     return UIApplication.sharedApplication.windows.firstObject;
++}
++
++// Display diagnostics: one log line per geometry/lifecycle change with the
++// screen (cover vs inner on the iPhone Duo), window, view and Metal drawable
++// sizes, so a black or mis-sized picture can be diagnosed from the log alone.
++static CAMetalLayer* StarshipPad_FindMetalLayer(CALayer* layer) {
++    if ([layer isKindOfClass:CAMetalLayer.class]) {
++        return (CAMetalLayer*)layer;
++    }
++    for (CALayer* sublayer in layer.sublayers) {
++        CAMetalLayer* found = StarshipPad_FindMetalLayer(sublayer);
++        if (found != nil) {
++            return found;
++        }
++    }
++    return nil;
++}
++
++static void StarshipPad_LogDisplayState(const char* reason) {
++    UIWindow* window = StarshipPad_ActiveWindow();
++    if (window == nil) {
++        SDL_Log("StarshipPad display: reason=%s window=nil", reason);
++        return;
++    }
++    UIScreen* screen = window.windowScene.screen;
++    CGSize screenSize = screen.bounds.size;
++    const char* screenName =
++        MAX(screenSize.width, screenSize.height) >= 760.0 ? "inner" : "cover";
++    UIView* view = window.rootViewController.view;
++    CAMetalLayer* metal = StarshipPad_FindMetalLayer(view.layer);
++    int sdlW = 0, sdlH = 0, drawW = 0, drawH = 0;
++    SDL_Window* sdlWindow = SDL_GetKeyboardFocus();
++    if (sdlWindow == nullptr) {
++        sdlWindow = SDL_GetWindowFromID(1);
++    }
++    if (sdlWindow != nullptr) {
++        SDL_GetWindowSize(sdlWindow, &sdlW, &sdlH);
++        SDL_Metal_GetDrawableSize(sdlWindow, &drawW, &drawH);
++    }
++    SDL_Log("StarshipPad display: reason=%s screen=%s(%.0fx%.0f@%.1f main=%d) "
++            "window=%.0fx%.0f view=%.0fx%.0f metal_layer=%.0fx%.0f drawable=%.0fx%.0f "
++            "scale=%.2f sdl_window=%dx%d sdl_drawable=%dx%d",
++            reason, screenName, screenSize.width, screenSize.height, screen.scale,
++            screen == UIScreen.mainScreen ? 1 : 0, window.bounds.size.width,
++            window.bounds.size.height, view.bounds.size.width, view.bounds.size.height,
++            metal.bounds.size.width, metal.bounds.size.height, metal.drawableSize.width,
++            metal.drawableSize.height, metal.contentsScale, sdlW, sdlH, drawW, drawH);
+ }
+ 
++// SDL sizes its window from the main screen (the cover display on the iPhone
++// Duo) and only corrects it from its view controller's viewDidLayoutSubviews.
++// Launched straight onto the inner display, the view is already the inner size
++// and no further layout pass comes, so SDL keeps the cover size while the
++// Metal drawable is the inner size and the game draws a black frame. Force
++// SDL's view controller to lay out again whenever the sizes disagree.
++static void StarshipPad_SyncSDLWindowSize(const char* reason) {
++    UIWindow* window = StarshipPad_ActiveWindow();
++    UIViewController* controller = window.rootViewController;
++    SDL_Window* sdlWindow = SDL_GetKeyboardFocus();
++    if (sdlWindow == nullptr) {
++        sdlWindow = SDL_GetWindowFromID(1);
++    }
++    if (controller == nil || sdlWindow == nullptr) {
++        return;
++    }
++    const CGSize viewSize = controller.view.bounds.size;
++    int sdlW = 0, sdlH = 0;
++    SDL_GetWindowSize(sdlWindow, &sdlW, &sdlH);
++    if (sdlW == (int)viewSize.width && sdlH == (int)viewSize.height) {
++        return;
++    }
++    SDL_Log("StarshipPad display: reason=%s resync sdl_window=%dx%d view=%.0fx%.0f",
++            reason, sdlW, sdlH, viewSize.width, viewSize.height);
++    [controller.view setNeedsLayout];
++    [controller.view layoutIfNeeded];
++    SDL_GetWindowSize(sdlWindow, &sdlW, &sdlH);
++    if (sdlW != (int)viewSize.width || sdlH != (int)viewSize.height) {
++        // No layout pass ran (bounds unchanged); deliver SDL's resize directly.
++        [controller viewDidLayoutSubviews];
++        SDL_GetWindowSize(sdlWindow, &sdlW, &sdlH);
++    }
++    StarshipPad_LogDisplayState("resynced");
++}
++
+ // The iOS software keyboard belongs only to an ImGui text field that wants
+ // input. SDL2 starts text input by default, and UIKit hands first responder
+ // back to SDL's hidden text field whenever the window or scene changes size
+@@ -1473,6 +1556,8 @@
+ 
+ - (void)layoutSubviews {
+     [super layoutSubviews];
++    StarshipPad_LogDisplayState("layout");
++    StarshipPad_SyncSDLWindowSize("layout");
+     StarshipPad_ConfigureKeyboardBar();
+     StarshipPad_DismissUnwantedKeyboard();
+     // UIKit may restore first responder after this pass; check once more.
+@@ -1514,6 +1599,26 @@
+                             SDL_StopTextInput();
+                         }
+                     }];
++        for (NSNotificationName name in @[ UIApplicationDidBecomeActiveNotification,
++                                           UIApplicationWillResignActiveNotification ]) {
++            [notifications addObserverForName:name
++                                       object:nil
++                                        queue:NSOperationQueue.mainQueue
++                                   usingBlock:^(NSNotification* notification) {
++                                       StarshipPad_LogDisplayState(
++                                           notification.name.UTF8String);
++                                       StarshipPad_SyncSDLWindowSize(
++                                           notification.name.UTF8String);
++                                   }];
++        }
++        // The probe is installed after SDL's window; catch a launch-time
++        // size mismatch even if no further layout pass comes.
++        for (double delay : { 0.0, 0.5, 2.0 }) {
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
++                           dispatch_get_main_queue(), ^{
++                               StarshipPad_SyncSDLWindowSize("launch");
++                           });
++        }
+         // SDL starts text input when its window is created.
+         StarshipPad_DismissUnwantedKeyboard();
+     });

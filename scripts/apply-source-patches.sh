@@ -59,6 +59,7 @@ if [ -s "$ROOT/patches/starship-ios.patch" ]; then
     starship_followups=(
         "$ROOT/patches/starship-compact-touch-layout.patch"
         "$ROOT/patches/starship-duo-keyboard.patch"
+        "$ROOT/patches/starship-duo-display.patch"
     )
     for (( i=${#starship_followups[@]}-1; i>=0; i-- )); do
         if git -C "$STARSHIP" apply --reverse --check "${starship_followups[$i]}" 2>/dev/null; then
