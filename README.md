@@ -23,6 +23,14 @@ native iOS/iPadOS application. Build it on a Mac, import your own supported
 Star Fox 64 ROM through Files, and fly by touch or connect a compatible
 controller—no keyboard required.
 
+> **This fork** adds iPhone Duo support on top of StarshipPad: a compact touch
+> layout for the cover screen and narrow phones, the game filling the inner
+> screen when launched unfolded, and the software keyboard kept closed across
+> fold, unfold and rotate. The changes are patches in `patches/`
+> (`starship-compact-touch-layout`, `starship-duo-display`,
+> `starship-duo-keyboard`, `libultraship-mobile-keyboard`), applied by the
+> normal build. Build and install as below.
+
 This repository contains the mobile integration, maintained source patches,
 tests, and reproducible build scripts. It does **not** contain Star Fox 64, a
 ROM, extracted Nintendo assets, or a playable ROM-derived archive.
