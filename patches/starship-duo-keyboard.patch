@@ -1,0 +1,210 @@
+--- a/ios/StarshipTouchControls.mm
++++ b/ios/StarshipTouchControls.mm
+@@ -8,6 +8,9 @@
+ #include "StarshipTouchControls.h"
+ #include "StarshipTouchVisibility.h"
+ 
++#include <imgui.h>
++#include <imgui_internal.h>
++
+ static std::atomic_bool sTouchControlsDesired(false);
+ static std::atomic_bool sAutoHideTouchControls(true);
+ static std::atomic_bool sPlayerOneGamepadReady(false);
+@@ -1331,8 +1334,189 @@
+         }
+     }
+     return UIApplication.sharedApplication.windows.firstObject;
++}
++
++// The iOS software keyboard belongs only to an ImGui text field that wants
++// input. SDL2 starts text input by default, and UIKit hands first responder
++// back to SDL's hidden text field whenever the window or scene changes size
++// (folding, unfolding or rotating the iPhone Duo), which pops the keyboard
++// over the game. Keep it closed unless ImGui asks for text.
++static UIView* sKeyboardProbe;
++
++static BOOL StarshipPad_ImGuiWantsText(void) {
++    return ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().WantTextInput;
++}
++
++static void StarshipPad_CloseKeyboard(void) {
++    if (ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().WantTextInput) {
++        ImGui::ClearActiveID();
++    }
++    if (SDL_IsTextInputActive()) {
++        SDL_StopTextInput();
++    }
++    [StarshipPad_ActiveWindow() endEditing:YES];
++}
++
++static void StarshipPad_DismissUnwantedKeyboard(void) {
++    if (StarshipPad_ImGuiWantsText()) {
++        return;
++    }
++    const BOOL wasActive = SDL_IsTextInputActive();
++    if (wasActive) {
++        SDL_StopTextInput();
++    }
++    if ([StarshipPad_ActiveWindow() endEditing:YES] || wasActive) {
++        SDL_Log("StarshipPad dismissed unwanted keyboard (text input was %s)",
++                wasActive ? "active" : "inactive");
++    }
++}
++
++@interface StarshipPadKeyboardBar : UIView
++@end
++
++@implementation StarshipPadKeyboardBar
++
++- (instancetype)initWithFrame:(CGRect)frame {
++    self = [super initWithFrame:frame];
++    if (self != nil) {
++        // Opaque: an input accessory view gets no keyboard backdrop.
++        self.backgroundColor = UIColor.secondarySystemBackgroundColor;
++        self.autoresizingMask = UIViewAutoresizingFlexibleWidth;
++        UIView* hairline = [[UIView alloc] initWithFrame:CGRectZero];
++        hairline.backgroundColor = UIColor.separatorColor;
++        hairline.translatesAutoresizingMaskIntoConstraints = NO;
++        [self addSubview:hairline];
++
++        UIButtonConfiguration* config = [UIButtonConfiguration filledButtonConfiguration];
++        config.title = @"Done";
++        config.image = [UIImage systemImageNamed:@"keyboard.chevron.compact.down"];
++        config.imagePlacement = NSDirectionalRectEdgeLeading;
++        config.imagePadding = 6.0;
++        config.baseBackgroundColor = UIColor.systemGray4Color;
++        config.baseForegroundColor = UIColor.labelColor;
++        config.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
++        UIButton* done = [UIButton buttonWithConfiguration:config primaryAction:nil];
++        done.accessibilityLabel = @"Close keyboard";
++        done.accessibilityIdentifier = @"keyboard-done";
++        done.translatesAutoresizingMaskIntoConstraints = NO;
++        [done addTarget:self
++                      action:@selector(closeKeyboard)
++            forControlEvents:UIControlEventTouchUpInside];
++        [self addSubview:done];
++
++        [NSLayoutConstraint activateConstraints:@[
++            [hairline.topAnchor constraintEqualToAnchor:self.topAnchor],
++            [hairline.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
++            [hairline.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
++            [hairline.heightAnchor constraintEqualToConstant:0.5],
++            [done.trailingAnchor constraintEqualToAnchor:self.safeAreaLayoutGuide.trailingAnchor
++                                                constant:-12.0],
++            [done.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
++        ]];
++    }
++    return self;
+ }
+ 
++- (void)closeKeyboard {
++    StarshipPad_CloseKeyboard();
++}
++
++@end
++
++static UITextField* StarshipPad_FindTextField(UIView* view) {
++    if ([view isKindOfClass:UITextField.class]) {
++        return (UITextField*)view;
++    }
++    for (UIView* subview in view.subviews) {
++        UITextField* found = StarshipPad_FindTextField(subview);
++        if (found != nil) {
++            return found;
++        }
++    }
++    return nil;
++}
++
++// SDL's hidden text field is what the keyboard serves; give it the Done bar.
++static void StarshipPad_ConfigureKeyboardBar(void) {
++    UITextField* field = StarshipPad_FindTextField(StarshipPad_ActiveWindow());
++    if (field == nil || [field.inputAccessoryView isKindOfClass:StarshipPadKeyboardBar.class]) {
++        return;
++    }
++    field.inputAccessoryView =
++        [[StarshipPadKeyboardBar alloc] initWithFrame:CGRectMake(0.0, 0.0, 320.0, 50.0)];
++    if (field.isFirstResponder) {
++        [field reloadInputViews];
++    }
++}
++
++// A full-window, non-interactive view whose layout pass runs on every window
++// or scene geometry change (fold, unfold, rotate, display switch).
++@interface StarshipPadKeyboardProbe : UIView
++@end
++
++@implementation StarshipPadKeyboardProbe
++
++- (void)layoutSubviews {
++    [super layoutSubviews];
++    StarshipPad_ConfigureKeyboardBar();
++    StarshipPad_DismissUnwantedKeyboard();
++    // UIKit may restore first responder after this pass; check once more.
++    dispatch_async(dispatch_get_main_queue(), ^{
++        StarshipPad_DismissUnwantedKeyboard();
++    });
++}
++
++@end
++
++static void StarshipPad_InstallKeyboardGuard(UIWindow* window) {
++    static dispatch_once_t onceToken;
++    dispatch_once(&onceToken, ^{
++        SDL_SetHint(SDL_HINT_RETURN_KEY_HIDES_IME, "1");
++        NSNotificationCenter* notifications = NSNotificationCenter.defaultCenter;
++        [notifications
++            addObserverForName:UIKeyboardWillShowNotification
++                        object:nil
++                         queue:NSOperationQueue.mainQueue
++                    usingBlock:^(NSNotification* notification) {
++                        (void)notification;
++                        StarshipPad_ConfigureKeyboardBar();
++                        // Let SDL's own observer run first, then undo it.
++                        dispatch_async(dispatch_get_main_queue(), ^{
++                            StarshipPad_DismissUnwantedKeyboard();
++                        });
++                    }];
++        [notifications
++            addObserverForName:UIKeyboardDidHideNotification
++                        object:nil
++                         queue:NSOperationQueue.mainQueue
++                    usingBlock:^(NSNotification* notification) {
++                        (void)notification;
++                        // Hidden some other way (Return, swipe): keep ImGui in step.
++                        if (StarshipPad_ImGuiWantsText()) {
++                            ImGui::ClearActiveID();
++                        }
++                        if (SDL_IsTextInputActive()) {
++                            SDL_StopTextInput();
++                        }
++                    }];
++        // SDL starts text input when its window is created.
++        StarshipPad_DismissUnwantedKeyboard();
++    });
++    if (sKeyboardProbe == nil) {
++        sKeyboardProbe = [[StarshipPadKeyboardProbe alloc] initWithFrame:window.bounds];
++        sKeyboardProbe.userInteractionEnabled = NO;
++        sKeyboardProbe.autoresizingMask =
++            UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++    }
++    if (sKeyboardProbe.superview != window) {
++        [sKeyboardProbe removeFromSuperview];
++        sKeyboardProbe.frame = window.bounds;
++        [window addSubview:sKeyboardProbe];
++        [window sendSubviewToBack:sKeyboardProbe];
++    }
++    StarshipPad_ConfigureKeyboardBar();
++}
++
+ static void StarshipPad_InstallMenuButton(UIWindow* window) {
+     if (sMenuButton == nil) {
+         sMenuButton =
+@@ -1381,6 +1565,7 @@
+         return;
+     }
+ 
++    StarshipPad_InstallKeyboardGuard(window);
+     StarshipPad_InstallMenuButton(window);
+     if (!StarshipPad_TouchGameplayControlsVisible() || sTouchControlsMenuVisible.load()) {
+         [sTouchOverlay endLayoutEditing];

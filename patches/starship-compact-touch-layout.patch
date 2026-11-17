@@ -1,0 +1,59 @@
+--- a/ios/StarshipTouchControls.mm
++++ b/ios/StarshipTouchControls.mm
+@@ -1083,6 +1083,56 @@
+         self.buttonStart.frame =
+             CGRectMake(CGRectGetMinX(self.buttonR.frame) - pillHeight - 12.0 * scale,
+                        shoulderY, pillHeight, pillHeight);
++    }
++
++    if (height < 560.0) {
++        // Compact screens (phones in landscape, the iPhone Duo cover screen):
++        // the rail layout above stacks C-up on top of A, Z on the D-pad and
++        // R on the Z face button, and on narrow screens pushes C-right past
++        // the edge. Re-pack each cluster from the screen edges so nothing overlaps.
++        CGFloat compactRightInset = MAX(8.0, safe.right * 0.35);
++        CGFloat gap = 8.0;
++        CGFloat compactCRadius = MAX(36.0, cSize * 0.5 + 14.0);
++        CGPoint compactC = CGPointMake(
++            width - compactRightInset - compactCRadius - cSize * 0.5,
++            height - safe.bottom - 6.0 - compactCRadius - cSize * 0.5);
++        self.buttonView.frame =
++            CGRectMake(compactC.x - cSize * 0.5,
++                       compactC.y - compactCRadius - cSize * 0.5, cSize, cSize);
++        self.buttonBrake.frame =
++            CGRectMake(compactC.x - cSize * 0.5,
++                       compactC.y + compactCRadius - cSize * 0.5, cSize, cSize);
++        self.buttonBoost.frame =
++            CGRectMake(compactC.x - compactCRadius - cSize * 0.5,
++                       compactC.y - cSize * 0.5, cSize, cSize);
++        self.buttonTalk.frame =
++            CGRectMake(compactC.x + compactCRadius - cSize * 0.5,
++                       compactC.y - cSize * 0.5, cSize, cSize);
++
++        CGFloat aCenterX = compactC.x - compactCRadius - cSize * 0.5 - gap - faceSize * 0.5;
++        CGFloat aCenterY = MIN(compactC.y + gap,
++                               height - safe.bottom - 6.0 - faceSize * 0.5);
++        self.buttonA.frame =
++            CGRectMake(aCenterX - faceSize * 0.5, aCenterY - faceSize * 0.5,
++                       faceSize, faceSize);
++        self.buttonB.frame =
++            CGRectMake(aCenterX - faceSize * 1.5 - gap,
++                       aCenterY - faceSize, faceSize, faceSize);
++        self.buttonZFace.frame =
++            CGRectMake(aCenterX - faceSize * 0.5,
++                       aCenterY - faceSize * 1.5 - gap, faceSize, faceSize);
++
++        CGFloat rTop = MIN(CGRectGetMinY(self.buttonView.frame),
++                           CGRectGetMinY(self.buttonZFace.frame)) - gap - pillHeight;
++        self.buttonR.frame =
++            CGRectMake(width - compactRightInset - shoulderWidth,
++                       MAX(CGRectGetMaxY(self.buttonStart.frame) + gap, rTop),
++                       shoulderWidth, pillHeight);
++
++        CGFloat dTop = CGRectGetMinY(self.dUp.frame);
++        self.buttonZShoulder.frame =
++            CGRectMake(left, MAX(safe.top + gap, dTop - gap - pillHeight),
++                       shoulderWidth, pillHeight);
+     }
+ 
+     CGFloat labelSize = 18.0 * scale;

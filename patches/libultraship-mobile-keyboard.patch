@@ -1,0 +1,13 @@
+--- a/src/port/mobile/MobileImpl.cpp
++++ b/src/port/mobile/MobileImpl.cpp
+@@ -5,7 +5,9 @@
+ 
+ #include <imgui_internal.h>
+ 
+-static bool isShowingVirtualKeyboard = true;
++// SDL2 on iOS starts text input at window creation, but nothing here asked for
++// the keyboard; start "not showing" so the first ImGui text field opens it.
++static bool isShowingVirtualKeyboard = false;
+ 
+ void Ship::Mobile::ImGuiProcessEvent(bool wantsTextInput) {
+     ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetActiveID());

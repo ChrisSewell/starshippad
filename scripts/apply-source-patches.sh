@@ -49,11 +49,29 @@ apply_patch() {
 
 apply_patch "$LUS" "$ROOT/patches/libultraship-ios.patch" "$ROOT/patches/libultraship-uikit-scenes.patch" \
     "$ROOT/patches/libultraship-sdl2-window-ownership.patch"
+apply_patch "$LUS" "$ROOT/patches/libultraship-mobile-keyboard.patch"
 apply_patch "$TORCH" "$ROOT/patches/torch-ios.patch"
 
 if [ -s "$ROOT/patches/starship-ios.patch" ]; then
+    # Follow-up patches edit a file the maintained patch creates; take them off
+    # (newest first) so the maintained patch's "already applied" check holds,
+    # then put them back in order.
+    starship_followups=(
+        "$ROOT/patches/starship-compact-touch-layout.patch"
+        "$ROOT/patches/starship-duo-keyboard.patch"
+    )
+    for (( i=${#starship_followups[@]}-1; i>=0; i-- )); do
+        if git -C "$STARSHIP" apply --reverse --check "${starship_followups[$i]}" 2>/dev/null; then
+            git -C "$STARSHIP" apply --reverse "${starship_followups[$i]}"
+        fi
+    done
     apply_patch "$STARSHIP" "$ROOT/patches/starship-ios.patch" "$ROOT/patches/starship-uikit-scenes.patch" \
         "$ROOT/patches/starship-touch-autohide.patch"
+    # Compact (phone / iPhone Duo cover) touch layout, then the keyboard guard
+    # that keeps the software keyboard closed across Duo fold/unfold/rotate.
+    for followup in "${starship_followups[@]}"; do
+        apply_patch "$STARSHIP" "$followup"
+    done
     icon_source="$ROOT/ios-assets/AppIcon.png"
     icon_destination="$STARSHIP/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
     if [ ! -f "$icon_source" ]; then
