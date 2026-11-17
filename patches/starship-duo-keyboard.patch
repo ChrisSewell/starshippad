@@ -10,7 +10,7 @@
  static std::atomic_bool sTouchControlsDesired(false);
  static std::atomic_bool sAutoHideTouchControls(true);
  static std::atomic_bool sPlayerOneGamepadReady(false);
-@@ -1331,8 +1334,189 @@
+@@ -1346,8 +1349,189 @@
          }
      }
      return UIApplication.sharedApplication.windows.firstObject;
@@ -200,7 +200,7 @@
  static void StarshipPad_InstallMenuButton(UIWindow* window) {
      if (sMenuButton == nil) {
          sMenuButton =
-@@ -1381,6 +1565,7 @@
+@@ -1396,6 +1580,7 @@
          return;
      }
  

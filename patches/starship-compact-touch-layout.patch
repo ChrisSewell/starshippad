@@ -1,10 +1,9 @@
 --- a/ios/StarshipTouchControls.mm
 +++ b/ios/StarshipTouchControls.mm
-@@ -1083,6 +1083,56 @@
-         self.buttonStart.frame =
+@@ -1084,7 +1084,72 @@
              CGRectMake(CGRectGetMinX(self.buttonR.frame) - pillHeight - 12.0 * scale,
                         shoulderY, pillHeight, pillHeight);
-+    }
+     }
 +
 +    if (height < 560.0) {
 +        // Compact screens (phones in landscape, the iPhone Duo cover screen):
@@ -29,7 +28,7 @@
 +        self.buttonTalk.frame =
 +            CGRectMake(compactC.x + compactCRadius - cSize * 0.5,
 +                       compactC.y - cSize * 0.5, cSize, cSize);
-+
+ 
 +        CGFloat aCenterX = compactC.x - compactCRadius - cSize * 0.5 - gap - faceSize * 0.5;
 +        CGFloat aCenterY = MIN(compactC.y + gap,
 +                               height - safe.bottom - 6.0 - faceSize * 0.5);
@@ -50,10 +49,27 @@
 +                       MAX(CGRectGetMaxY(self.buttonStart.frame) + gap, rTop),
 +                       shoulderWidth, pillHeight);
 +
++        // Keep the D-pad fully on screen, and the stick clear of its right arm.
++        CGFloat minDpadCenterX = safe.left + 4.0 + dRadius + dSize * 0.5;
++        if (dCenter.x < minDpadCenterX) {
++            CGFloat shift = minDpadCenterX - dCenter.x;
++            for (UIView* button in @[ self.dUp, self.dDown, self.dLeft, self.dRight ]) {
++                button.frame = CGRectOffset(button.frame, shift, 0.0);
++            }
++        }
++        CGFloat minStickCenterX = CGRectGetMaxX(self.dRight.frame) + gap + stickSize * 0.5;
++        if (CGRectGetMidX(self.controlStick.frame) < minStickCenterX) {
++            self.controlStick.frame =
++                CGRectOffset(self.controlStick.frame,
++                             minStickCenterX - CGRectGetMidX(self.controlStick.frame), 0.0);
++        }
++
 +        CGFloat dTop = CGRectGetMinY(self.dUp.frame);
 +        self.buttonZShoulder.frame =
 +            CGRectMake(left, MAX(safe.top + gap, dTop - gap - pillHeight),
 +                       shoulderWidth, pillHeight);
-     }
- 
++    }
++
      CGFloat labelSize = 18.0 * scale;
+     for (StarshipPadTouchButton* button in self.buttons) {
+         button.titleLabel.font = [UIFont systemFontOfSize:labelSize weight:UIFontWeightSemibold];
